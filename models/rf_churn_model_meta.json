@@ -1,0 +1,33 @@
+{
+  "feature_names": [
+    "gender",
+    "SeniorCitizen",
+    "Partner",
+    "Dependents",
+    "tenure",
+    "PhoneService",
+    "MultipleLines",
+    "OnlineSecurity",
+    "OnlineBackup",
+    "DeviceProtection",
+    "TechSupport",
+    "StreamingTV",
+    "StreamingMovies",
+    "PaperlessBilling",
+    "MonthlyCharges",
+    "TotalCharges",
+    "TenureGroup",
+    "AvgMonthlySpend",
+    "InternetService_Fiber optic",
+    "InternetService_No",
+    "Contract_One year",
+    "Contract_Two year",
+    "PaymentMethod_Credit card (automatic)",
+    "PaymentMethod_Electronic check",
+    "PaymentMethod_Mailed check"
+  ],
+  "threshold": 0.3632911392405064,
+  "trained_at": "2026-03-07T15:09:07.719001",
+  "model_type": "RandomForestClassifier",
+  "n_features": 25
+}
