@@ -9,6 +9,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import streamlit as st
+import requests
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
@@ -20,6 +21,7 @@ from ab_testing      import run_ab_test, power_analysis_table
 
 ROOT      = os.path.dirname(__file__)
 DATA_PATH = os.path.join(ROOT, 'data', 'telco_churn_processed.csv')
+API_URL   = os.environ.get('API_URL', 'http://localhost:8000')
 
 AVG_MONTHLY_REVENUE = 65   # £ per customer (MonthlyCharges proxy)
 
@@ -87,7 +89,15 @@ st.markdown("""
 
 @st.cache_resource(show_spinner='Loading prediction system…')
 def get_model():
-    return load_model('rf_churn_model')
+    try:
+        return load_model('rf_churn_model')
+    except Exception:
+        # API inference mode can run without local model artifacts.
+        return {
+            'model': None,
+            'feature_names': [],
+            'threshold': float(os.environ.get('DEFAULT_PREDICTION_THRESHOLD', '0.36')),
+        }
 
 
 @st.cache_data(show_spinner='Loading customer data…')
@@ -96,7 +106,13 @@ def get_data():
 
 
 def model_ready() -> bool:
+    if use_api_inference():
+        return True
     return os.path.exists(os.path.join(ROOT, 'models', 'rf_churn_model.joblib'))
+
+
+def use_api_inference() -> bool:
+    return os.environ.get('USE_API_INFERENCE', '0') == '1'
 
 
 def show_deploy_prompt():
@@ -112,6 +128,22 @@ def show_deploy_prompt():
 @st.cache_data(show_spinner='Scoring customers…')
 def get_scored(_model, _feature_names, _threshold, _data_hash):
     df = get_data()
+    if use_api_inference():
+        try:
+            response = requests.post(
+                f'{API_URL}/predict',
+                json={'records': df.to_dict(orient='records')},
+                timeout=60,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            preds = pd.DataFrame(payload.get('predictions', []), index=df.index)
+            if preds.empty:
+                raise ValueError('No predictions returned by API')
+            return pd.concat([df, preds], axis=1)
+        except Exception as exc:
+            st.warning(f'API scoring unavailable, using local model instead. ({exc})')
+
     return score_customers(df, _model, _feature_names, _threshold)
 
 
@@ -383,6 +415,14 @@ elif page == '🔍  Why Is a Customer Leaving?':
     model         = artifact['model']
     feature_names = artifact['feature_names']
     df            = get_data()
+
+    if model is None:
+        st.info(
+            'SHAP explainability requires local model access. '
+            'Run with local model artifacts (MODEL_SOURCE=local) to use this page.',
+            icon='ℹ️',
+        )
+        st.stop()
 
     X = df.drop(columns=['Churn_Numeric'])
 

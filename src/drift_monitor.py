@@ -1,9 +1,16 @@
 import os
+import smtplib
 import numpy as np
 import pandas as pd
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from email.mime.text import MIMEText
+
+try:
+    import mlflow
+except Exception:
+    mlflow = None
 
 _ROOT       = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 REPORTS_DIR = os.path.join(_ROOT, 'reports')
@@ -160,3 +167,69 @@ def drift_summary(psi_df: pd.DataFrame) -> dict:
         'retrain'        : retrain,
         'recommendation' : recommendation,
     }
+
+
+def log_drift_to_mlflow(psi_df: pd.DataFrame, run_name: str = 'drift_monitor') -> dict:
+    """Log per-feature PSI and summary metrics to MLflow if available."""
+    summary = drift_summary(psi_df)
+    if mlflow is None:
+        return summary
+
+    tracking_uri = os.environ.get('MLFLOW_TRACKING_URI', 'http://localhost:5000')
+    experiment = os.environ.get('MLFLOW_EXPERIMENT', 'Telco_Churn_Prediction')
+    mlflow.set_tracking_uri(tracking_uri)
+    mlflow.set_experiment(experiment)
+
+    with mlflow.start_run(run_name=run_name):
+        for _, row in psi_df.iterrows():
+            mlflow.log_metric(f"psi_{row['feature']}", float(row['psi']))
+
+        mlflow.log_metrics({
+            'drift_total_features': int(summary['total_features']),
+            'drift_stable_features': int(summary['stable']),
+            'drift_monitor_features': int(summary['monitor']),
+            'drift_retrain_features': int(summary['retrain']),
+        })
+        mlflow.log_params({
+            'psi_stable_threshold': PSI_STABLE,
+            'psi_retrain_threshold': PSI_RETRAIN,
+        })
+    return summary
+
+
+def send_retrain_email_alert(summary: dict, psi_df: pd.DataFrame) -> bool:
+    """Send an SMTP email alert when retraining is recommended."""
+    if summary.get('retrain', 0) <= 0:
+        return False
+
+    smtp_host = os.environ.get('ALERT_SMTP_HOST')
+    smtp_port = int(os.environ.get('ALERT_SMTP_PORT', '587'))
+    smtp_user = os.environ.get('ALERT_SMTP_USER')
+    smtp_pass = os.environ.get('ALERT_SMTP_PASSWORD')
+    sender = os.environ.get('ALERT_FROM_EMAIL', smtp_user or '')
+    recipients_raw = os.environ.get('ALERT_TO_EMAILS', '')
+    recipients = [x.strip() for x in recipients_raw.split(',') if x.strip()]
+
+    if not smtp_host or not sender or not recipients:
+        return False
+
+    top = psi_df.head(10)[['feature', 'psi', 'status']]
+    body = (
+        'Churn model drift alert\n\n'
+        f"Recommendation: {summary.get('recommendation', 'N/A')}\n"
+        f"Stable: {summary.get('stable', 0)} | Monitor: {summary.get('monitor', 0)} | Retrain: {summary.get('retrain', 0)}\n\n"
+        'Top drifted features:\n'
+        f"{top.to_string(index=False)}\n"
+    )
+
+    msg = MIMEText(body)
+    msg['Subject'] = '[Churn MLOps] Retrain recommended'
+    msg['From'] = sender
+    msg['To'] = ', '.join(recipients)
+
+    with smtplib.SMTP(smtp_host, smtp_port, timeout=20) as server:
+        server.starttls()
+        if smtp_user and smtp_pass:
+            server.login(smtp_user, smtp_pass)
+        server.sendmail(sender, recipients, msg.as_string())
+    return True

@@ -2,6 +2,67 @@
 
 A full end-to-end churn prediction system built on the **IBM Telco Customer Churn** dataset — from raw EDA and preprocessing all the way through model training, SHAP explainability, CRM integration, data drift monitoring, A/B testing, and an interactive **Streamlit retention dashboard**.
 
+## MLOps Upgrade (In Progress)
+
+This project now includes a production-oriented MLOps path in addition to the local notebook flow:
+
+- MLflow tracking and model registry integration in `src/deploy_model.py`
+- FastAPI batch inference service in `src/api.py`
+- API-based Streamlit scoring mode (`USE_API_INFERENCE=1`)
+- Drift job entrypoint with MLflow logging and SMTP alerts in `src/drift_monitor_job.py`
+- Containerized multi-service stack via `docker-compose.yml`
+- CI workflow in `.github/workflows/ml_pipeline.yml`
+
+### Service Architecture
+
+1. `mlflow` service: experiment tracking and model registry.
+2. `api` service: batch prediction endpoint (`POST /predict`) and health endpoint (`GET /health`).
+3. `streamlit` service: dashboard UI that calls API for scoring.
+
+### Run Containerized Stack
+
+```bash
+docker compose up --build
+```
+
+Endpoints:
+
+- MLflow UI: `http://localhost:5001`
+- FastAPI: `http://localhost:18000` (`/health`, `/predict`)
+- Streamlit: `http://localhost:18501`
+
+### Environment Variables
+
+Use `.env.example` as a template for local configuration.
+
+Key variables:
+
+- `MODEL_SOURCE` (`local` or `mlflow`)
+- `MLFLOW_TRACKING_URI`
+- `MLFLOW_EXPERIMENT`
+- `MLFLOW_MODEL_ALIAS`
+- `API_URL`
+- `USE_API_INFERENCE`
+- `ALERT_SMTP_*`
+
+### Drift Monitoring Job (Airflow/Cron Ready)
+
+Run manually:
+
+```bash
+python -m src.drift_monitor_job --reference-path data/telco_churn_processed.csv --current-path data/telco_churn_processed.csv
+```
+
+This job computes PSI, logs drift metrics to MLflow, and sends email alerts when retraining is recommended.
+
+### Quick MLflow Logging (Existing Model)
+
+Use this helper to log your current local model artifact to MLflow without opening a notebook:
+
+```bash
+./venv/python.exe scripts/log_existing_model_to_mlflow.py --tracking-uri http://localhost:5000 --experiment Telco_Churn_Prediction
+```
+
 ---
 
 ## Dashboard Preview
@@ -49,6 +110,8 @@ This project answers:
 
 ```
 churn-analyze-crm/
+├── docker-compose.yml                  # Multi-service local orchestration
+├── Dockerfile                          # Shared image for API + Streamlit services
 ├── app.py                              # Streamlit retention dashboard (entry point)
 ├── requirements.txt                    # Python dependencies
 ├── data/
@@ -61,11 +124,15 @@ churn-analyze-crm/
 │   ├── eda_prac.ipynb                  # Full EDA + preprocessing notebook
 │   └── model_evaluation.ipynb          # Model training & evaluation notebook
 ├── src/
+│   ├── api.py                          # FastAPI batch inference service
 │   ├── deploy_model.py                 # Model packaging, loading & model card
 │   ├── shap_analysis.py                # SHAP explainability (waterfall, bar, beeswarm)
 │   ├── crm_integration.py              # Customer scoring, risk tiers, CRM CSV export
 │   ├── drift_monitor.py                # PSI-based data drift detection & alerts
+│   ├── drift_monitor_job.py            # Scheduler-friendly drift monitoring entrypoint
 │   └── ab_testing.py                   # A/B test simulation & power analysis
+├── .github/workflows/
+│   └── ml_pipeline.yml                 # CI checks (syntax/import smoke)
 ├── reports/                            # Auto-generated SHAP plots & drift reports
 └── img/                                # Dashboard screenshots
 ```

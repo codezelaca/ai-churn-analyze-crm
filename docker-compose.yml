@@ -1,0 +1,43 @@
+version: "3.8"
+
+services:
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.13.2
+    command: mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:////mlrunsdb/mlflow.db --default-artifact-root /mlartifacts
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow_data:/mlartifacts
+      - mlflow_db:/mlrunsdb
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: uvicorn src.api:app --host 0.0.0.0 --port 8081
+    ports:
+      - "8081:8081"
+    environment:
+      - MODEL_SOURCE=mlflow
+      - MODEL_NAME=rf_churn_model
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - ALLOW_LOCAL_MODEL_FALLBACK=1
+    depends_on:
+      - mlflow
+
+  streamlit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: streamlit run app.py --server.port 8501 --server.address 0.0.0.0
+    ports:
+      - "8501:8501"
+    environment:
+      - API_URL=http://api:8081
+      - USE_API_INFERENCE=1
+    depends_on:
+      - api
+
+volumes:
+  mlflow_data:
+  mlflow_db:

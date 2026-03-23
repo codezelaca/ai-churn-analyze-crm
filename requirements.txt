@@ -10,3 +10,9 @@ shap
 streamlit
 scipy
 joblib
+mlflow
+fastapi
+uvicorn
+requests
+python-dotenv
+docker

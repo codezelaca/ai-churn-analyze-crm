@@ -1,0 +1,36 @@
+name: ml-pipeline-ci
+
+on:
+    push:
+        branches: ["main", "develop"]
+    pull_request:
+        branches: ["**"]
+
+jobs:
+    ci:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Setup Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: "3.11"
+
+            - name: Install dependencies
+              run: |
+                  python -m pip install --upgrade pip
+                  pip install -r requirements.txt
+
+            - name: Python syntax check
+              run: |
+                  python -m compileall src app.py
+
+            - name: Import smoke tests
+              run: |
+                  python -c "import src.deploy_model"
+                  python -c "import src.crm_integration"
+                  python -c "import src.drift_monitor"
+                  python -c "import src.ab_testing"
+                  python -c "import src.shap_analysis"
